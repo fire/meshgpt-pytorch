@@ -1478,8 +1478,7 @@ class MeshTransformer(Module):
 
         if not exists(cache):
             sos_tokens, attended_face_codes = unpack(attended_face_codes, packed_sos_shape, 'b * d')  
-            pooled_sos_token = reduce(sos_tokens, 'b n d -> b 1 d', 'mean')
-            attention_scores = F.softmax(self.attention_weights(pooled_sos_token), dim=1)
+            attention_scores = F.softmax(self.attention_weights(sos_tokens), dim=1)
             pooled_sos_token = torch.sum(attention_scores * sos_tokens, dim=1, keepdim=True)
             attended_face_codes = torch.cat((pooled_sos_token, attended_face_codes), dim = 1)
 
