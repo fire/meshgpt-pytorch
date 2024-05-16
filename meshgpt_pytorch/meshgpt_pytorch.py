@@ -1066,7 +1066,8 @@ class MeshTransformer(Module):
 
         self.num_sos_tokens = num_sos_tokens
         self.sos_token = nn.Parameter(torch.randn(num_sos_tokens, dim))
-        self.attention_weights = nn.Linear(dim, 1, bias=False)
+        self.attention_weights = nn.Linear(dim, 1, bias=False) 
+        self.text_context_to_embedding = nn.Linear(dim, dim)
         
         # they use axial positional embeddings
 
@@ -1448,8 +1449,13 @@ class MeshTransformer(Module):
         else:
             # auto prepend sos token
 
-            sos = repeat(self.sos_token, 'n d -> b n d', b = batch)
-            face_codes, packed_sos_shape = pack([sos, face_codes], 'b * d')
+            text_context = torch.mean(text_embeds, dim=1)  
+            initial_context_embedding = self.text_context_to_embedding(text_context)  # Shape: (batch_size, dim)
+
+            # Prepend this embedding to the sequence
+            initial_context_embedding = initial_context_embedding.unsqueeze(1)  # Shape: (batch_size, 1, dim)
+            sos = self.sos_token.expand(face_codes.size(0), -1, -1)  # Shape: (batch_size, num_sos_tokens, dim)
+            face_codes = torch.cat((sos, initial_context_embedding, face_codes), dim=1)
 
             # if no kv cache, always call first transformer
 
@@ -1475,12 +1481,7 @@ class MeshTransformer(Module):
         attended_face_codes = safe_cat((cached_attended_face_codes, attended_face_codes), dim = -2)
 
         # if calling without kv cache, pool the sos tokens, if greater than 1 sos token
-
-        if not exists(cache) and self.num_sos_tokens > 1:
-            sos_tokens, attended_face_codes = unpack(attended_face_codes, packed_sos_shape, 'b * d') 
-            attention_scores = F.softmax(self.attention_weights(sos_tokens), dim=1)
-            pooled_sos_token = torch.sum(attention_scores * sos_tokens, dim=1, keepdim=True)
-            attended_face_codes = torch.cat((pooled_sos_token, attended_face_codes), dim = 1)
+ 
 
         # maybe project from coarse to fine dimension for hierarchical transformers
 
