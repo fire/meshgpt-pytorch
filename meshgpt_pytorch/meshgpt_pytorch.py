@@ -1143,6 +1143,9 @@ class MeshTransformer(Module):
             attn_flash = flash_attn,
             attn_dropout = dropout,
             ff_dropout = dropout,
+            cross_attend = condition_on_text,
+            cross_attn_dim_context = cross_attn_dim_context,
+            cross_attn_num_mem_kv = cross_attn_num_mem_kv,
             **attn_kwargs
         )
 
@@ -1523,12 +1526,21 @@ class MeshTransformer(Module):
         if one_face:
             fine_vertex_codes = fine_vertex_codes[:, :(curr_vertex_pos + 1)]
 
+
+        fine_attn_context_kwargs = dict()
+
+        if self.condition_on_text:
+            fine_attn_context_kwargs = dict(
+                context = repeat(text_embed, 'b ... -> (b nf) ...', nf = num_faces),
+                context_mask = repeat(text_mask, 'b ... -> (b nf) ...', nf = num_faces)
+            )
+
         attended_vertex_codes, fine_cache = self.fine_decoder(
             fine_vertex_codes,
+            **fine_attn_context_kwargs,
             cache = fine_cache,
             return_hiddens = True
         )
-
         if not should_cache_fine:
             fine_cache = None
 
