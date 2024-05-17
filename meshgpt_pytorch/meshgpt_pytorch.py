@@ -1477,8 +1477,10 @@ class MeshTransformer(Module):
         # if calling without kv cache, pool the sos tokens, if greater than 1 sos token
 
         if not exists(cache):
-            sos_tokens, attended_face_codes = unpack(attended_face_codes, packed_sos_shape, 'b * d')   
-            attended_face_codes = torch.cat((sos_tokens, attended_face_codes), dim = 1)
+            sos_tokens, attended_face_codes = unpack(attended_face_codes, packed_sos_shape, 'b * d')  
+            attention_scores = F.softmax(self.attention_weights(sos_tokens), dim=1)
+            pooled_sos_token = torch.sum(attention_scores * sos_tokens, dim=1, keepdim=True)
+            attended_face_codes = torch.cat((pooled_sos_token, attended_face_codes), dim = 1)
 
         # maybe project from coarse to fine dimension for hierarchical transformers
 
