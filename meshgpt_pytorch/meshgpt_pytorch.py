@@ -1067,7 +1067,6 @@ class MeshTransformer(Module):
         self.num_sos_tokens = num_sos_tokens
         self.sos_token = nn.Parameter(torch.randn(num_sos_tokens, dim))
         self.attention_weights = nn.Linear(dim, 1, bias=False)
-        self.fc = nn.Linear(dim, dim * num_sos_tokens)
         
         # they use axial positional embeddings
 
@@ -1100,6 +1099,7 @@ class MeshTransformer(Module):
 
             self.to_sos_text_cond = nn.Linear(dim_text, dim_fine)
 
+        self.fc = nn.Linear(self.conditioner.dim_latent, dim)
         # for summarizing the vertices of each face
 
         self.to_face_tokens = nn.Sequential(
@@ -1449,9 +1449,9 @@ class MeshTransformer(Module):
         else:
             # auto prepend sos token
 
-            sos = repeat(self.sos_token, 'n d -> b n d', b = batch)
-            face_codes, packed_sos_shape = pack([sos, face_codes], 'b * d')
-
+ 
+            initial_tokens = self.fc(text_embeds)  
+            face_codes, packed_sos_shape = pack([initial_tokens, face_codes], 'b * d')
             # if no kv cache, always call first transformer
 
             need_call_first_transformer = True
@@ -1476,13 +1476,7 @@ class MeshTransformer(Module):
         attended_face_codes = safe_cat((cached_attended_face_codes, attended_face_codes), dim = -2)
 
         # if calling without kv cache, pool the sos tokens, if greater than 1 sos token
-
-        if not exists(cache):
-            sos_tokens, attended_face_codes = unpack(attended_face_codes, packed_sos_shape, 'b * d')   
-            initial_tokens = self.fc(sos_tokens)  
-            initial_tokens = rearrange(initial_tokens, 'b n (t d) -> b (n t) d', t=self.num_sos_tokens)
-         
-            attended_face_codes = torch.cat((initial_tokens, attended_face_codes), dim = 1)
+ 
 
         # maybe project from coarse to fine dimension for hierarchical transformers
 
