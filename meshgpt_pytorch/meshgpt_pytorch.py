@@ -1469,8 +1469,7 @@ class MeshTransformer(Module):
                 cache = coarse_cache,
                 return_hiddens = True,
                 **attn_context_kwargs
-            ) 
-            attended_face_codes = safe_cat((cached_attended_face_codes, attended_face_codes), dim = -2)
+            )  
         else:
             attended_face_codes = cached_attended_face_codes
  
