@@ -1450,13 +1450,7 @@ class MeshTransformer(Module):
             cached_face_codes_len_without_sos = cached_face_codes_len - 1
 
             need_call_first_transformer = face_codes_len > cached_face_codes_len_without_sos
-        else:
-            # auto prepend sos token
-
-            sos = repeat(self.sos_token, 'n d -> b n d', b = batch)
-            face_codes, packed_sos_shape = pack([sos, face_codes], 'b * d')
-
-            # if no kv cache, always call first transformer
+        else: 
 
             need_call_first_transformer = True
 
@@ -1473,28 +1467,41 @@ class MeshTransformer(Module):
                 cache = coarse_cache,
                 return_hiddens = True,
                 **attn_context_kwargs
-            )
+            ) 
+            attended_face_codes = safe_cat((cached_attended_face_codes, attended_face_codes), dim = -2)
         else:
-            attended_face_codes = None
-
-        attended_face_codes = safe_cat((cached_attended_face_codes, attended_face_codes), dim = -2)
-
-        # if calling without kv cache, pool the sos tokens, if greater than 1 sos token
-
-        if not exists(cache):
-            sos_tokens, attended_face_codes = unpack(attended_face_codes, packed_sos_shape, 'b * d') 
-            attention_scores = F.softmax(self.attention_weights(sos_tokens), dim=1) 
-            pooled_sos_token = torch.sum(attention_scores * sos_tokens, dim=1, keepdim=True)
-            attended_face_codes = torch.cat((attended_face_codes,pooled_sos_token), dim = 1)
+            attended_face_codes = cached_attended_face_codes
+ 
 
         # maybe project from coarse to fine dimension for hierarchical transformers
 
+        
         attended_face_codes = self.maybe_project_coarse_to_fine(attended_face_codes)
 
-        grouped_codes = pad_to_length(grouped_codes, attended_face_codes.shape[-2], dim = 1)
-        fine_vertex_codes, _ = pack([attended_face_codes, grouped_codes], 'b n * d')
+        # repeat sos token across batch
 
-        fine_vertex_codes = fine_vertex_codes[..., :-1, :]
+        sos = repeat(self.sos_token, 'd -> b d', b = batch)
+
+        # condition sos token if needed
+
+        if self.condition_on_text:
+            pooled_text_embed = masked_mean(
+                text_embed,
+                text_mask,
+                dim = 1
+            )
+
+            sos_cond = self.to_sos_text_cond(pooled_text_embed)
+            sos = sos + sos_cond
+
+        # auto prepend sos token
+
+        attended_face_codes_with_sos, _ = pack([sos, attended_face_codes], 'b * d')
+
+        grouped_codes = pad_to_length(grouped_codes, attended_face_codes_with_sos.shape[-2], dim = 1)
+        fine_vertex_codes, _ = pack([attended_face_codes_with_sos, grouped_codes], 'b n * d')
+
+        fine_vertex_codes = fine_vertex_codes[..., :-1, :] 
 
         # gateloop layers
 
