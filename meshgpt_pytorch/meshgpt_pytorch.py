@@ -1480,8 +1480,8 @@ class MeshTransformer(Module):
 
         if not exists(cache):
             sos_tokens, attended_face_codes = unpack(attended_face_codes, packed_sos_shape, 'b * d')
-            last_sos_token = sos_tokens[:, -1:]
-            attended_face_codes = torch.cat((attended_face_codes,last_sos_token), dim = 1)
+            pooled_sos_token = reduce(sos_tokens, 'b n d -> b 1 d', 'mean')
+            attended_face_codes = torch.cat((attended_face_codes,pooled_sos_token), dim = 1)
 
         # maybe project from coarse to fine dimension for hierarchical transformers
 
