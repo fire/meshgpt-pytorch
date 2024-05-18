@@ -1144,10 +1144,7 @@ class MeshTransformer(Module):
             attn_dim_head = attn_dim_head,
             attn_flash = flash_attn,
             attn_dropout = dropout,
-            ff_dropout = dropout, 
-            cross_attend = condition_on_text,
-            cross_attn_dim_context = cross_attn_dim_context,
-            cross_attn_num_mem_kv = cross_attn_num_mem_kv,
+            ff_dropout = dropout,  
             **attn_kwargs
         )
 
@@ -1451,7 +1448,19 @@ class MeshTransformer(Module):
 
             need_call_first_transformer = face_codes_len > cached_face_codes_len_without_sos
         else: 
+            sos = repeat(self.sos_token, 'd -> b d', b = batch)
+ 
+            if self.condition_on_text:
+                pooled_text_embed = masked_mean(
+                    text_embed,
+                    text_mask,
+                    dim = 1
+                )
 
+                sos_cond = self.to_sos_text_cond(pooled_text_embed)
+                sos = sos_cond
+                
+            face_codes, packed_sos_shape = pack([sos, face_codes], 'b * d')
             need_call_first_transformer = True
 
         should_cache_fine = not divisible_by(curr_vertex_pos + 1, num_tokens_per_face)
@@ -1472,6 +1481,7 @@ class MeshTransformer(Module):
         else:
             attended_face_codes = cached_attended_face_codes
  
+ 
 
         # maybe project from coarse to fine dimension for hierarchical transformers
 
@@ -1479,7 +1489,6 @@ class MeshTransformer(Module):
         attended_face_codes = self.maybe_project_coarse_to_fine(attended_face_codes)
 
         # repeat sos token across batch
-
         sos = repeat(self.sos_token, 'd -> b d', b = batch)
 
         # condition sos token if needed
@@ -1492,14 +1501,12 @@ class MeshTransformer(Module):
             )
 
             sos_cond = self.to_sos_text_cond(pooled_text_embed)
-            sos = sos + sos_cond
-
-        # auto prepend sos token
-
+            sos = sos_cond
+ 
         attended_face_codes_with_sos, _ = pack([sos, attended_face_codes], 'b * d')
 
         grouped_codes = pad_to_length(grouped_codes, attended_face_codes_with_sos.shape[-2], dim = 1)
-        fine_vertex_codes, _ = pack([attended_face_codes_with_sos, grouped_codes], 'b n * d')
+        fine_vertex_codes, _ = pack([attended_face_codes_with_sos, grouped_codes], 'b n * d') 
 
         fine_vertex_codes = fine_vertex_codes[..., :-1, :] 
 
@@ -1533,20 +1540,15 @@ class MeshTransformer(Module):
         fine_vertex_codes = rearrange(fine_vertex_codes, 'b nf n d -> (b nf) n d')
 
         if one_face:
-            fine_vertex_codes = fine_vertex_codes[:, :(curr_vertex_pos + 1)]
-        fine_attn_context_kwargs = dict()
+            fine_vertex_codes = fine_vertex_codes[:, :(curr_vertex_pos + 1)] 
 
-        if self.condition_on_text:
-            fine_attn_context_kwargs = dict(
-                context = repeat(text_embed, 'b ... -> (b nf) ...', nf = num_faces),
-                context_mask = repeat(text_mask, 'b ... -> (b nf) ...', nf = num_faces)
-            )
-
+        if not exists(cache):
+            sos_tokens, attended_face_codes = unpack(attended_face_codes, packed_sos_shape, 'b * d') 
+            attended_face_codes = torch.cat((sos_tokens, attended_face_codes), dim = 1)
 
         attended_vertex_codes, fine_cache = self.fine_decoder(
             fine_vertex_codes,
-            cache = fine_cache,
-            **fine_attn_context_kwargs,
+            cache = fine_cache, 
             return_hiddens = True
         )
 
