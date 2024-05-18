@@ -160,8 +160,10 @@ def get_derived_face_features(
 
     edge1, edge2, *_ = (face_coords - shifted_face_coords).unbind(dim = 2)
 
-    normals = l2norm(torch.cross(edge1, edge2, dim = -1))
-    area = normals.norm(dim = -1, keepdim = True) * 0.5
+    cross_product = torch.cross(edge1, edge2, dim = -1)
+
+    normals = l2norm(cross_product)
+    area = cross_product.norm(dim = -1, keepdim = True) * 0.5
 
     return dict(
         angles = angles,
@@ -1038,7 +1040,7 @@ class MeshTransformer(Module):
         fine_attn_dim_head = 32,
         fine_attn_heads = 8,
         pad_id = -1,
-        num_sos_tokens = 1,
+        num_sos_tokens = None,
         condition_on_text = False,
         text_condition_model_types = ('t5',),
         text_condition_cond_drop_prob = 0.25,
@@ -1062,12 +1064,12 @@ class MeshTransformer(Module):
         # the fine transformer sos token
         # as well as a projection of pooled text embeddings to condition it
 
+        num_sos_tokens = default(num_sos_tokens, 1 if not condition_on_text else 4)
         assert num_sos_tokens > 0
 
         self.num_sos_tokens = num_sos_tokens
         self.sos_token = nn.Parameter(torch.randn(num_sos_tokens, dim))
-        self.attention_weights = nn.Linear(dim, 1, bias=False)
-        
+
         # they use axial positional embeddings
 
         assert divisible_by(max_seq_len, self.num_vertices_per_face * self.num_quantizers), f'max_seq_len ({max_seq_len}) must be divisible by (3 x {self.num_quantizers}) = {3 * self.num_quantizers}' # 3 or 4 vertices per face, with D codes per vertex
@@ -1099,7 +1101,6 @@ class MeshTransformer(Module):
 
             self.to_sos_text_cond = nn.Linear(dim_text, dim_fine)
 
-        self.fc = nn.Linear(self.conditioner.dim_latent, dim)
         # for summarizing the vertices of each face
 
         self.to_face_tokens = nn.Sequential(
@@ -1143,7 +1144,7 @@ class MeshTransformer(Module):
             attn_dim_head = attn_dim_head,
             attn_flash = flash_attn,
             attn_dropout = dropout,
-            ff_dropout = dropout, 
+            ff_dropout = dropout,
             **attn_kwargs
         )
 
@@ -1449,9 +1450,9 @@ class MeshTransformer(Module):
         else:
             # auto prepend sos token
 
- 
-            initial_tokens = self.fc(text_embeds)  
-            face_codes, packed_sos_shape = pack([initial_tokens, face_codes], 'b * d')
+            sos = repeat(self.sos_token, 'n d -> b n d', b = batch)
+            face_codes, packed_sos_shape = pack([sos, face_codes], 'b * d')
+
             # if no kv cache, always call first transformer
 
             need_call_first_transformer = True
@@ -1476,7 +1477,11 @@ class MeshTransformer(Module):
         attended_face_codes = safe_cat((cached_attended_face_codes, attended_face_codes), dim = -2)
 
         # if calling without kv cache, pool the sos tokens, if greater than 1 sos token
- 
+
+        if not exists(cache):
+            sos_tokens, attended_face_codes = unpack(attended_face_codes, packed_sos_shape, 'b * d')
+            last_sos_token = sos_tokens[:, -1:]
+            attended_face_codes = torch.cat((attended_face_codes,last_sos_token), dim = 1)
 
         # maybe project from coarse to fine dimension for hierarchical transformers
 
@@ -1519,13 +1524,12 @@ class MeshTransformer(Module):
         if one_face:
             fine_vertex_codes = fine_vertex_codes[:, :(curr_vertex_pos + 1)]
 
- 
-
         attended_vertex_codes, fine_cache = self.fine_decoder(
-            fine_vertex_codes, 
+            fine_vertex_codes,
             cache = fine_cache,
             return_hiddens = True
         )
+
         if not should_cache_fine:
             fine_cache = None
 
