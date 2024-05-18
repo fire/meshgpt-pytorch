@@ -1068,8 +1068,8 @@ class MeshTransformer(Module):
         assert num_sos_tokens > 0
 
         self.num_sos_tokens = num_sos_tokens
-        self.sos_token =  nn.Parameter(torch.randn(num_sos_tokens, dim))
-        self.attention_weights = nn.Linear(dim, 1, bias=False)
+        self.sos_token = nn.Parameter(torch.randn(num_sos_tokens, dim))
+
         # they use axial positional embeddings
 
         assert divisible_by(max_seq_len, self.num_vertices_per_face * self.num_quantizers), f'max_seq_len ({max_seq_len}) must be divisible by (3 x {self.num_quantizers}) = {3 * self.num_quantizers}' # 3 or 4 vertices per face, with D codes per vertex
@@ -1144,7 +1144,7 @@ class MeshTransformer(Module):
             attn_dim_head = attn_dim_head,
             attn_flash = flash_attn,
             attn_dropout = dropout,
-            ff_dropout = dropout,  
+            ff_dropout = dropout,
             **attn_kwargs
         )
 
@@ -1447,15 +1447,16 @@ class MeshTransformer(Module):
             cached_face_codes_len_without_sos = cached_face_codes_len - 1
 
             need_call_first_transformer = face_codes_len > cached_face_codes_len_without_sos
-        else: 
-            # auto prepend sos token 
+        else:
+            # auto prepend sos token
+
             sos = repeat(self.sos_token, 'n d -> b n d', b = batch)
             face_codes, packed_sos_shape = pack([sos, face_codes], 'b * d')
 
             # if no kv cache, always call first transformer
 
             need_call_first_transformer = True
-        
+
         should_cache_fine = not divisible_by(curr_vertex_pos + 1, num_tokens_per_face)
 
         # attention on face codes (coarse)
@@ -1469,15 +1470,10 @@ class MeshTransformer(Module):
                 cache = coarse_cache,
                 return_hiddens = True,
                 **attn_context_kwargs
-            )  
+            )
         else:
-            attended_face_codes = cached_attended_face_codes
- 
- 
+            attended_face_codes = None
 
-        # maybe project from coarse to fine dimension for hierarchical transformers
-
-        
         attended_face_codes = safe_cat((cached_attended_face_codes, attended_face_codes), dim = -2)
 
         # if calling without kv cache, pool the sos tokens, if greater than 1 sos token
@@ -1488,8 +1484,9 @@ class MeshTransformer(Module):
             pooled_sos_token = torch.sum(attention_scores * sos_tokens, dim=1, keepdim=True)
             attended_face_codes = torch.cat((pooled_sos_token, attended_face_codes), dim = 1)
 
-        attended_face_codes = self.maybe_project_coarse_to_fine(attended_face_codes)
+        # maybe project from coarse to fine dimension for hierarchical transformers
 
+        attended_face_codes = self.maybe_project_coarse_to_fine(attended_face_codes)
 
         grouped_codes = pad_to_length(grouped_codes, attended_face_codes.shape[-2], dim = 1)
         fine_vertex_codes, _ = pack([attended_face_codes, grouped_codes], 'b n * d')
@@ -1526,15 +1523,11 @@ class MeshTransformer(Module):
         fine_vertex_codes = rearrange(fine_vertex_codes, 'b nf n d -> (b nf) n d')
 
         if one_face:
-            fine_vertex_codes = fine_vertex_codes[:, :(curr_vertex_pos + 1)] 
-
-        if not exists(cache):
-            sos_tokens, attended_face_codes = unpack(attended_face_codes, packed_sos_shape, 'b * d') 
-            attended_face_codes = torch.cat((sos_tokens, attended_face_codes), dim = 1)
+            fine_vertex_codes = fine_vertex_codes[:, :(curr_vertex_pos + 1)]
 
         attended_vertex_codes, fine_cache = self.fine_decoder(
             fine_vertex_codes,
-            cache = fine_cache, 
+            cache = fine_cache,
             return_hiddens = True
         )
 
