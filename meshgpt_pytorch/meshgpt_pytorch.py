@@ -1068,7 +1068,7 @@ class MeshTransformer(Module):
         assert num_sos_tokens > 0
 
         self.num_sos_tokens = num_sos_tokens
-        self.sos_token = nn.Parameter(torch.randn(num_sos_tokens, dim))
+        self.sos_token =  nn.Parameter(torch.randn(dim_fine))
         self.attention_weights = nn.Linear(dim, 1, bias=False)
         # they use axial positional embeddings
 
