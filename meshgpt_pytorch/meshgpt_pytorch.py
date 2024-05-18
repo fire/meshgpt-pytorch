@@ -1068,8 +1068,8 @@ class MeshTransformer(Module):
         assert num_sos_tokens > 0
 
         self.num_sos_tokens = num_sos_tokens
-        self.sos_token = nn.Parameter(torch.randn(num_sos_tokens, dim))
-
+        self.sos_token = nn.Parameter(torch.randn(num_sos_tokens, dim)) 
+        self.attention_weights = nn.Linear(dim, dim, bias=False)
         # they use axial positional embeddings
 
         assert divisible_by(max_seq_len, self.num_vertices_per_face * self.num_quantizers), f'max_seq_len ({max_seq_len}) must be divisible by (3 x {self.num_quantizers}) = {3 * self.num_quantizers}' # 3 or 4 vertices per face, with D codes per vertex
@@ -1480,8 +1480,7 @@ class MeshTransformer(Module):
 
         if not exists(cache):
             sos_tokens, attended_face_codes = unpack(attended_face_codes, packed_sos_shape, 'b * d')
-            attention_scores = F.softmax(self.attention_weights(sos_tokens), dim=1)
-            pooled_sos_token = torch.sum(attention_scores * sos_tokens, dim=1, keepdim=True)
+            pooled_sos_token = self.attention_weights(sos_tokens) 
             attended_face_codes = torch.cat((pooled_sos_token, attended_face_codes), dim = 1)
 
         # maybe project from coarse to fine dimension for hierarchical transformers
