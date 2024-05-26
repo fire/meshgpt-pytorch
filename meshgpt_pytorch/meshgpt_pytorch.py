@@ -1449,12 +1449,17 @@ class MeshTransformer(Module):
             need_call_first_transformer = face_codes_len > cached_face_codes_len_without_sos
         else:
             # auto prepend sos token
+            pooled_text_embed = masked_mean(
+                            text_embed,
+                            text_mask,
+                            dim = 1
+                        )
 
-            sos = repeat(self.sos_token, 'n d -> b n d', b = batch)
+            sos = self.to_sos_text_cond(pooled_text_embed) 
+            sos = repeat(sos, 'n d -> b n d', b = batch)
             face_codes, packed_sos_shape = pack([sos, face_codes], 'b * d')
 
-            # if no kv cache, always call first transformer
-
+            # if no kv cache, always call first transformer 
             need_call_first_transformer = True
 
         should_cache_fine = not divisible_by(curr_vertex_pos + 1, num_tokens_per_face)
@@ -1480,8 +1485,8 @@ class MeshTransformer(Module):
 
         if not exists(cache):
             sos_tokens, attended_face_codes = unpack(attended_face_codes, packed_sos_shape, 'b * d')
-            pooled_sos_token = self.attention_weights(sos_tokens) 
-            attended_face_codes = torch.cat((pooled_sos_token, attended_face_codes), dim = 1)
+            #pooled_sos_token = self.attention_weights(sos_tokens) 
+            attended_face_codes = torch.cat((sos_tokens, attended_face_codes), dim = 1)
 
         # maybe project from coarse to fine dimension for hierarchical transformers
 
