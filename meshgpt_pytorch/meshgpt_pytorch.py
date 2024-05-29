@@ -1479,14 +1479,15 @@ class MeshTransformer(Module):
 
         attended_face_codes = self.maybe_project_coarse_to_fine(attended_face_codes)
         
-        pooled_text_embed = masked_mean(
-            text_embed,
-            text_mask,
-            dim = 1
-        )
+        if not exists(cache):
+            pooled_text_embed = masked_mean(
+                text_embed,
+                text_mask,
+                dim = 1
+            )
 
-        sos_cond = self.to_sos_text_cond(pooled_text_embed).unsqueeze(1) 
-        attended_face_codes = torch.cat((sos_cond, attended_face_codes), dim = 1)
+            sos_cond = self.to_sos_text_cond(pooled_text_embed).unsqueeze(1) 
+            attended_face_codes = torch.cat((sos_cond, attended_face_codes), dim = 1)
 
         grouped_codes = pad_to_length(grouped_codes, attended_face_codes.shape[-2], dim = 1)
         fine_vertex_codes, _ = pack([attended_face_codes, grouped_codes], 'b n * d')
