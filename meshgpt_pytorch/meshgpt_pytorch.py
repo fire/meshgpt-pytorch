@@ -1096,8 +1096,8 @@ class MeshTransformer(Module):
         num_sos_tokens = default(num_sos_tokens, 1 if not condition_on_text else 4)
         assert num_sos_tokens > 0
 
-        self.num_sos_tokens = num_sos_tokens
-        self.sos_token = nn.Parameter(torch.randn(num_sos_tokens, dim))
+        self.num_sos_tokens = num_sos_tokens 
+        self.sos_token =nn.Parameter(torch.randn(dim))
 
         # they use axial positional embeddings
 
@@ -1487,9 +1487,8 @@ class MeshTransformer(Module):
         else:
             # auto prepend sos token
 
-            sos = repeat(self.sos_token, 'n d -> b n d', b = batch)
-            face_codes, packed_sos_shape = pack([sos, face_codes], 'b * d')
-
+            sos = repeat(self.sos_token, 'd -> b d', b = batch) 
+            face_codes, packed_sos_shape = pack([sos, face_codes], 'b * d') 
             # if no kv cache, always call first transformer
 
             need_call_first_transformer = True
@@ -1519,11 +1518,7 @@ class MeshTransformer(Module):
         attended_face_codes = safe_cat((cached_attended_face_codes, attended_face_codes), dim = -2)
 
         # if calling without kv cache, pool the sos tokens, if greater than 1 sos token
-
-        if not exists(cache):
-            sos_tokens, attended_face_codes = unpack(attended_face_codes, packed_sos_shape, 'b * d')
-            last_sos_token = sos_tokens[:, -1:]
-            attended_face_codes = torch.cat((last_sos_token, attended_face_codes), dim = 1)
+ 
 
         # maybe project from coarse to fine dimension for hierarchical transformers
 
