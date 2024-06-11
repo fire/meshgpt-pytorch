@@ -1145,6 +1145,7 @@ class MeshTransformer(Module, PyTorchModelHubMixin):
         self.vertex_embed = nn.Parameter(torch.randn(self.num_vertices_per_face, dim))
 
         self.abs_pos_emb = nn.Embedding(max_seq_len, dim)
+        self.point_cloud_decoder = nn.Conv1d(12, 12, kernel_size=1)
 
         self.max_seq_len = max_seq_len
 
@@ -1444,13 +1445,9 @@ class MeshTransformer(Module, PyTorchModelHubMixin):
 
             if exists(codes):
                 assert text_embeds.shape[0] == codes.shape[0], 'batch size of texts or text embeddings is not equal to the batch size of the mesh codes'
-
-            _, maybe_dropped_text_embeds = self.conditioner(
-                text_embeds = text_embeds,
-                cond_drop_prob = cond_drop_prob
-            )
-
-            text_embed, text_mask = maybe_dropped_text_embeds
+ 
+            text_mask = (text_embeds != -2).any(dim = -1) 
+            text_embed =  self.point_cloud_decoder(text_embeds)
 
             pooled_text_embed = masked_mean(text_embed, text_mask, dim = 1)
 
